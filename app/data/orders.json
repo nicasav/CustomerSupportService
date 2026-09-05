@@ -1,0 +1,26 @@
+[
+  {
+    "order_number": "ORD-10432",
+    "customer_number": "CUS-1001",
+    "status": "delayed",
+    "amount": 149.99,
+    "tracking_number": "TRK-10432",
+    "return_eligible": true
+  },
+  {
+    "order_number": "ORD-10433",
+    "customer_number": "CUS-1002",
+    "status": "delivered",
+    "amount": 39.50,
+    "tracking_number": "TRK-10433",
+    "return_eligible": true
+  },
+  {
+    "order_number": "ORD-10434",
+    "customer_number": "CUS-1003",
+    "status": "processing",
+    "amount": 799.00,
+    "tracking_number": "TRK-10434",
+    "return_eligible": false
+  }
+]
