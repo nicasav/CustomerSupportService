@@ -1,58 +1,208 @@
 # Customer Support Service
 
-Deterministic-first scaffold for the BGTS customer support and ticketing agent
-technical assessment.
+Customer support and ticketing agent for the BGTS take-home assessment. The
+runtime can use local Ollama with `qwen2.5:3b`; tests remain deterministic by
+injecting the rule-based classifier or a mocked Ollama client.
 
-## Current scope
+## Run locally
 
-This first increment intentionally does not call an LLM. The project is being
-built around a deterministic workflow so that validation, branching, and
-human-in-the-loop persistence can be tested before an LLM adapter is added.
+```bash
+git clone https://github.com/nicasav/CustomerSupportService.git
+cd CustomerSupportService
+python3.11 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env
+brew install ollama
+ollama serve
+ollama pull qwen2.5:3b
+uvicorn app.main:app --reload
+```
 
-## Planned workflow
+The service runs at `http://127.0.0.1:8000`. Swagger is available at
+`http://127.0.0.1:8000/docs`.
 
-1. Validate and normalize the incoming customer message.
-2. Extract a structured request (topic, urgency, order number, and risk flags).
-3. Fetch order data through an order repository/tool abstraction.
-4. Apply an explicit deterministic risk policy.
-5. Return a routine response, or persist a pending approval reference.
-6. Resume a pending workflow from its saved state after an approve/reject
-   decision, without repeating extraction or tool calls.
-7. Return the customer response and an auditable step summary.
+Run tests with:
+
+```bash
+pytest
+```
+
+## Environment
+
+`.env.example` defines:
+
+- `APP_NAME` — service name.
+- `ENVIRONMENT` — deployment environment label.
+- `LLM_PROVIDER` — `ollama` for local Qwen or `deterministic` for rule-based
+  development.
+- `LLM_MODEL` — Ollama model name; defaults to `qwen2.5:3b`.
+- `LLM_BASE_URL` — Ollama API URL; defaults to `http://127.0.0.1:11434`.
+- `CHECKPOINT_PATH` — SQLite file used by LangGraph checkpoints.
+
+Never commit a real `.env` file or API keys.
+
+## API examples
+
+### Routine request
+
+```bash
+curl -X POST http://127.0.0.1:8000/requests \
+  -H 'content-type: application/json' \
+  -d '{"message":"Where is my ORD-10433 order?"}'
+```
+
+This returns a completed response with the order lookup and workflow steps.
+
+### Human approval flow
+
+Start a risky request:
+
+```bash
+curl -X POST http://127.0.0.1:8000/requests \
+  -H 'content-type: application/json' \
+  -d '{"message":"Refund my ORD-10432 today or I will take legal action."}'
+```
+
+The response contains `status: "pending_approval"` and a `reference`. Resume
+that exact workflow later:
+
+```bash
+curl -X POST \
+  http://127.0.0.1:8000/requests/<reference>/decision \
+  -H 'content-type: application/json' \
+  -d '{"approved":true,"note":"Approved by support"}'
+```
+
+Rejecting uses `"approved": false`. A second decision returns `409`; an
+unknown reference returns `404`.
+
+## Architecture
+
+```text
+api -> services -> orchestration -> domain/tools/repositories
+```
+
+- **API** contains FastAPI routes and boundary schemas only.
+- **Services** translate HTTP operations into workflow operations.
+- **Orchestration** owns LangGraph nodes, conditional routing, interrupts, and
+  checkpoint configuration.
+- **Domain** contains validated Pydantic models and the pure risk policy.
+- **Tools/repositories** provide typed access to mock order data.
+
+The risk policy requires approval for a legal threat, urgency `4+`, or a
+refund above `500`. These rules are explicit and testable rather than hidden
+inside a prompt.
+
+SQLite checkpoints use the request reference as LangGraph `thread_id`. A
+pending workflow can therefore be resumed after the process restarts, and
+classification/order lookup are not repeated during resume.
+
+## End-to-end request lifecycle
+
+1. FastAPI validates the body with `RequestCreate`.
+2. `TicketService.start()` creates a UUID reference and uses it as the
+   LangGraph `thread_id`.
+3. The classifier produces `ExtractedIntent`. Ollama uses
+   `ExtractedIntent.model_json_schema()` through its `format` parameter;
+   tests inject the deterministic classifier or a mocked HTTP client.
+4. `OrderLookupTool` validates the order number and queries the repository.
+5. `assess_risk()` applies the legal-threat, urgency, and refund-value rules.
+6. LangGraph creates a routine response or records pending state and calls
+   `interrupt()`.
+7. A later decision becomes `Command(resume=...)`, so LangGraph continues at
+   the interrupt instead of rerunning classification or order lookup.
+8. `TicketService` maps the final `WorkflowState` to `FinalResponse`.
+
+Each transition appends a UTC-timestamped `WorkflowStep`, making the result
+auditable and allowing tests to verify which nodes ran.
+
+## Code guide
+
+### Entry point and configuration
+
+- `app/main.py`: `app` is the FastAPI application; `lifespan()` creates and
+  closes the shared repository, classifier, graph, and SQLite saver.
+- `app/core/config.py`: `Settings` defines environment-backed settings and
+  `get_settings()` returns the cached settings instance.
+
+### HTTP layer
+
+- `app/api/schemas.py`: `RequestCreate`, `DecisionRequest`, `PendingResponse`,
+  and `FinalResponse` are strict HTTP DTOs.
+- `app/api/routes.py`: `health()` checks liveness, `create_request()` starts a
+  workflow, and `decide_request()` resumes one while mapping errors to `404`
+  and `409`.
+
+### Domain layer
+
+- `app/domain/models.py`: enums and Pydantic models define topics, urgency,
+  orders, intent, risk, decisions, audit steps, and complete workflow state.
+- `app/domain/risk_policy.py`: `assess_risk()` is a pure function with no
+  network or persistence dependency.
+
+### Data access and tools
+
+- `app/repositories/orders.py`: `OrderRepository` is the protocol and
+  `JsonOrderRepository` validates and indexes the mock JSON dataset.
+- `app/tools/order_lookup.py`: `OrderLookupInput` validates tool arguments and
+  `OrderLookupTool.run()` delegates to the repository.
+
+### Classifiers
+
+- `app/services/classifier.py`: `IntentClassifier` is the replaceable
+  contract; `OllamaIntentClassifier.classify()` sends schema-constrained JSON
+  requests; `DeterministicIntentClassifier.classify()` is the offline rules
+  implementation.
+- `app/services/prompts.py`: keeps the Ollama system prompt separate from
+  classifier code.
+
+### Orchestration and services
+
+- `app/orchestration/graph.py`: `build_support_graph()` wires nodes for
+  classification, lookup, risk routing, routine response, and HITL pause.
+  `_step()` creates audit records.
+- `app/orchestration/checkpointer.py`: `sqlite_checkpointer()` initializes and
+  manages the async SQLite saver.
+- `app/services/ticket_service.py`: `TicketService.start()` starts a thread,
+  `resume()` sends a human decision, and `_final_response()` maps internal
+  state to the public response. The custom exceptions represent invalid and
+  already-resolved references.
+
+## Testing guide
+
+Unit tests cover validation, classifiers, risk rules, and order lookup.
+Integration tests cover graph branches, HITL interrupts, SQLite reopen
+behavior, HTTP response bodies, and edge cases. Ollama tests use
+`httpx.MockTransport`, so tests never call a real model.
+
+```bash
+pytest -q
+```
 
 ## Project structure
 
 ```text
 app/
-  api/             # FastAPI routes and request/response schemas
-  core/            # Configuration and shared application concerns
-  data/            # Small mock order dataset
-  domain/          # Pydantic domain models and enums
-  orchestration/   # Stateful workflow and deterministic transitions
-  repositories/    # Data access interfaces and in-memory implementations
+  api/             # HTTP routes and schemas
+  core/            # Pydantic Settings configuration
+  data/            # Mock orders and local SQLite checkpoint file
+  domain/          # Pydantic models and pure business rules
+  orchestration/   # LangGraph graph and checkpoint lifecycle
+  repositories/    # Typed data access
   services/        # Application use cases
-  tools/           # Typed tools exposed to the workflow
+  tools/           # Typed workflow tools
 tests/
-  unit/            # Isolated domain, repository, and policy tests
-  integration/     # HTTP and pause/resume workflow tests
+  unit/            # Model, classifier, repository, and policy tests
+  integration/     # Graph, persistence, and API tests
 ```
 
-## Planned API
+## Known limitations
 
-- `GET /health` — service and dependency health.
-- `POST /requests` — start a customer request; returns either a final result
-  or a pending approval reference.
-- `POST /requests/{reference}/decision` — approve or reject a pending request
-  and resume it from its saved state.
-
-Implementation will be added incrementally on top of this scaffold.
-
-## Development
-
-```bash
-python3.11 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-uvicorn app.main:app --reload
-pytest
-```
+- Response generation is still deterministic; Ollama is currently used for
+  structured intent classification only.
+- The Ollama model must be downloaded separately and is not included in Git.
+- The mock data repository reads a small JSON file rather than a production
+  database.
+- The API process owns one SQLite saver lifecycle; production deployment
+  would need operational database management and concurrency review.
