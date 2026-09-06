@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 OrderNumber = Annotated[str, Field(pattern=r"^ORD-\d{5}$")]
+TrackingNumber = Annotated[str, Field(pattern=r"^TRK-\d{5}$")]
 Reference = Annotated[str, Field(min_length=1, max_length=100)]
 
 
@@ -81,6 +82,13 @@ class Order(BaseModel):
     return_eligible: bool
 
 
+class TrackingInfo(BaseModel):
+    """Shipment tracking result returned by the tracking tool."""
+
+    tracking_number: TrackingNumber
+    status: str = Field(min_length=1)
+
+
 class RiskAssessment(BaseModel):
     """Risk decision and human-approval reasons for a request."""
 
@@ -120,6 +128,7 @@ class WorkflowState(BaseModel):
     status: WorkflowStatus = WorkflowStatus.RUNNING
     intent: ExtractedIntent | None = None
     order: Order | None = None
+    tracking: TrackingInfo | None = None
     risk: RiskAssessment | None = None
     human_decision: HumanDecision | None = None
     customer_response: str | None = None

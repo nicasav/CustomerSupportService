@@ -10,11 +10,13 @@ from app.orchestration.graph import build_support_graph
 from app.repositories.orders import JsonOrderRepository
 from app.services.classifier import (
     DeterministicIntentClassifier,
+    FallbackIntentClassifier,
     IntentClassifier,
     OllamaIntentClassifier,
 )
 from app.services.ticket_service import TicketService
 from app.tools.order_lookup import OrderLookupTool
+from app.tools.tracking_lookup import TrackingLookupTool
 
 
 @asynccontextmanager
@@ -25,9 +27,17 @@ async def lifespan(application: FastAPI):
     repository = JsonOrderRepository(data_dir / "orders.json")
     classifier: IntentClassifier
     if settings.llm_provider == "ollama":
-        classifier = OllamaIntentClassifier(
+        ollama_classifier = OllamaIntentClassifier(
             base_url=settings.llm_base_url,
             model=settings.llm_model,
+        )
+        classifier = (
+            FallbackIntentClassifier(
+                primary=ollama_classifier,
+                fallback=DeterministicIntentClassifier(),
+            )
+            if settings.llm_fallback_to_deterministic
+            else ollama_classifier
         )
     elif settings.llm_provider == "deterministic":
         classifier = DeterministicIntentClassifier()
@@ -37,6 +47,7 @@ async def lifespan(application: FastAPI):
         graph = build_support_graph(
             classifier,
             OrderLookupTool(repository),
+            TrackingLookupTool(repository),
             saver,
         )
         application.state.ticket_service = TicketService(graph)

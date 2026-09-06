@@ -5,6 +5,7 @@ from decimal import Decimal
 from typing import Protocol
 
 import httpx
+from pydantic import ValidationError
 
 from app.domain.models import CustomerRequest, ExtractedIntent, Topic, Urgency
 from app.services.prompts import CLASSIFICATION_SYSTEM_PROMPT
@@ -19,6 +20,28 @@ AMOUNT_PATTERN = re.compile(
 class IntentClassifier(Protocol):
     async def classify(self, request: CustomerRequest) -> ExtractedIntent:
         """Convert a customer message into validated structured intent."""
+
+
+class OllamaClassificationError(RuntimeError):
+    """Raised when Ollama cannot return valid structured intent."""
+
+
+class FallbackIntentClassifier:
+    """Use a fallback classifier when the primary classifier is unavailable."""
+
+    def __init__(
+        self,
+        primary: IntentClassifier,
+        fallback: IntentClassifier,
+    ) -> None:
+        self._primary = primary
+        self._fallback = fallback
+
+    async def classify(self, request: CustomerRequest) -> ExtractedIntent:
+        try:
+            return await self._primary.classify(request)
+        except OllamaClassificationError:
+            return await self._fallback.classify(request)
 
 
 class OllamaIntentClassifier:
@@ -57,6 +80,10 @@ class OllamaIntentClassifier:
             payload = response.json()
             content = payload["message"]["content"]
             return ExtractedIntent.model_validate_json(content)
+        except (httpx.HTTPError, KeyError, TypeError, ValueError, ValidationError) as exc:
+            raise OllamaClassificationError(
+                "Ollama failed to return valid structured intent"
+            ) from exc
         finally:
             if owns_client:
                 await client.aclose()

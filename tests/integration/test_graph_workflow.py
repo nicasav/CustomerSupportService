@@ -7,6 +7,7 @@ from app.orchestration.graph import build_support_graph
 from app.repositories.orders import JsonOrderRepository
 from app.services.classifier import DeterministicIntentClassifier
 from app.tools.order_lookup import OrderLookupTool
+from app.tools.tracking_lookup import TrackingLookupTool
 
 
 @pytest.fixture
@@ -17,6 +18,7 @@ def support_graph():
     return build_support_graph(
         classifier=DeterministicIntentClassifier(),
         order_lookup=OrderLookupTool(repository),
+        tracking_lookup=TrackingLookupTool(repository),
     )
 
 
@@ -31,6 +33,7 @@ async def test_routine_request_reaches_completed_response(support_graph) -> None
 
     assert result["status"] is WorkflowStatus.COMPLETED
     assert result["order"].order_number == "ORD-10433"
+    assert result["tracking"].tracking_number == "TRK-10433"
     assert result["risk"].requires_human_approval is False
     assert "automatic response" in result["steps"][-1].detail
 

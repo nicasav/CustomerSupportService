@@ -16,6 +16,7 @@ from app.domain.models import (
 from app.domain.risk_policy import assess_risk
 from app.services.classifier import IntentClassifier
 from app.tools.order_lookup import OrderLookupInput, OrderLookupTool
+from app.tools.tracking_lookup import TrackingLookupInput, TrackingLookupTool
 
 
 def _step(name: str, detail: str) -> WorkflowStep:
@@ -30,6 +31,7 @@ def _step(name: str, detail: str) -> WorkflowStep:
 def build_support_graph(
     classifier: IntentClassifier,
     order_lookup: OrderLookupTool,
+    tracking_lookup: TrackingLookupTool,
     checkpointer: BaseCheckpointSaver | None = None,
 ):
     """Build a compiled graph with its external dependencies injected."""
@@ -72,6 +74,28 @@ def build_support_graph(
         return {
             "order": order,
             "steps": [*state.steps, _step("lookup_order", detail)],
+        }
+
+    async def lookup_tracking_node(state: WorkflowState) -> dict[str, object]:
+        """Use the loaded order to retrieve shipment status."""
+        if state.order is None:
+            return {
+                "steps": [
+                    *state.steps,
+                    _step("lookup_tracking", "No order was available for tracking lookup"),
+                ]
+            }
+        tracking = await tracking_lookup.run(
+            TrackingLookupInput(tracking_number=state.order.tracking_number)
+        )
+        detail = (
+            f"Loaded tracking {tracking.tracking_number}: {tracking.status}"
+            if tracking is not None
+            else f"Tracking {state.order.tracking_number} was not found"
+        )
+        return {
+            "tracking": tracking,
+            "steps": [*state.steps, _step("lookup_tracking", detail)],
         }
 
     def assess_risk_node(state: WorkflowState) -> dict[str, object]:
@@ -172,13 +196,15 @@ def build_support_graph(
     graph = StateGraph(WorkflowState)
     graph.add_node("classify", classify_node)
     graph.add_node("lookup_order", lookup_order_node)
+    graph.add_node("lookup_tracking", lookup_tracking_node)
     graph.add_node("assess_risk", assess_risk_node)
     graph.add_node("mark_pending", mark_pending_node)
     graph.add_node("routine_response", routine_response_node)
     graph.add_node("await_approval", await_approval_node)
     graph.add_edge(START, "classify")
     graph.add_edge("classify", "lookup_order")
-    graph.add_edge("lookup_order", "assess_risk")
+    graph.add_edge("lookup_order", "lookup_tracking")
+    graph.add_edge("lookup_tracking", "assess_risk")
     graph.add_conditional_edges("assess_risk", route_after_risk)
     graph.add_edge("mark_pending", "await_approval")
     graph.add_edge("routine_response", END)

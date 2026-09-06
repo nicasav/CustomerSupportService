@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     llm_provider: str = "deterministic"
     llm_model: str = "qwen2.5:3b"
     llm_base_url: str = "http://127.0.0.1:11434"
+    llm_fallback_to_deterministic: bool = True
     checkpoint_path: str = "app/data/workflow.sqlite"
 
 

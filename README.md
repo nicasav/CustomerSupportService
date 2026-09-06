@@ -38,6 +38,8 @@ pytest
   development.
 - `LLM_MODEL` — Ollama model name; defaults to `qwen2.5:3b`.
 - `LLM_BASE_URL` — Ollama API URL; defaults to `http://127.0.0.1:11434`.
+- `LLM_FALLBACK_TO_DETERMINISTIC` — when `true`, use the deterministic
+  classifier if Ollama is unavailable or returns invalid structured output.
 - `CHECKPOINT_PATH` — SQLite file used by LangGraph checkpoints.
 
 Never commit a real `.env` file or API keys.
@@ -107,12 +109,14 @@ classification/order lookup are not repeated during resume.
    `ExtractedIntent.model_json_schema()` through its `format` parameter;
    tests inject the deterministic classifier or a mocked HTTP client.
 4. `OrderLookupTool` validates the order number and queries the repository.
-5. `assess_risk()` applies the legal-threat, urgency, and refund-value rules.
-6. LangGraph creates a routine response or records pending state and calls
+5. `TrackingLookupTool` uses the order's tracking number to load shipment
+   status from the same repository.
+6. `assess_risk()` applies the legal-threat, urgency, and refund-value rules.
+7. LangGraph creates a routine response or records pending state and calls
    `interrupt()`.
-7. A later decision becomes `Command(resume=...)`, so LangGraph continues at
+8. A later decision becomes `Command(resume=...)`, so LangGraph continues at
    the interrupt instead of rerunning classification or order lookup.
-8. `TicketService` maps the final `WorkflowState` to `FinalResponse`.
+9. `TicketService` maps the final `WorkflowState` to `FinalResponse`.
 
 Each transition appends a UTC-timestamped `WorkflowStep`, making the result
 auditable and allowing tests to verify which nodes ran.
@@ -147,20 +151,24 @@ auditable and allowing tests to verify which nodes ran.
   `JsonOrderRepository` validates and indexes the mock JSON dataset.
 - `app/tools/order_lookup.py`: `OrderLookupInput` validates tool arguments and
   `OrderLookupTool.run()` delegates to the repository.
+- `app/tools/tracking_lookup.py`: `TrackingLookupInput` validates tracking
+  arguments and `TrackingLookupTool.run()` returns shipment status. Both
+  tools are injected into and called by the LangGraph workflow.
 
 ### Classifiers
 
 - `app/services/classifier.py`: `IntentClassifier` is the replaceable
   contract; `OllamaIntentClassifier.classify()` sends schema-constrained JSON
   requests; `DeterministicIntentClassifier.classify()` is the offline rules
-  implementation.
+  implementation; `FallbackIntentClassifier` handles explicit Ollama failures.
 - `app/services/prompts.py`: keeps the Ollama system prompt separate from
   classifier code.
 
 ### Orchestration and services
 
-- `app/orchestration/graph.py`: `build_support_graph()` wires nodes for
-  classification, lookup, risk routing, routine response, and HITL pause.
+- `app/orchestration/graph.py`: `build_support_graph()` wires classification,
+  order lookup, shipment tracking, risk routing, routine response, and HITL
+  pause.
   `_step()` creates audit records.
 - `app/orchestration/checkpointer.py`: `sqlite_checkpointer()` initializes and
   manages the async SQLite saver.
@@ -174,7 +182,9 @@ auditable and allowing tests to verify which nodes ran.
 Unit tests cover validation, classifiers, risk rules, and order lookup.
 Integration tests cover graph branches, HITL interrupts, SQLite reopen
 behavior, HTTP response bodies, and edge cases. Ollama tests use
-`httpx.MockTransport`, so tests never call a real model.
+`httpx.MockTransport`, so tests never call a real model. Malformed Ollama
+output is surfaced as `OllamaClassificationError`; the configured fallback can
+then preserve service availability without silently accepting invalid data.
 
 ```bash
 pytest -q

@@ -43,3 +43,23 @@ async def test_ollama_classifier_uses_schema_constrained_output() -> None:
     assert intent.urgency is Urgency.LOW
     assert captured["format"] == intent.model_json_schema()
     assert captured["stream"] is False
+
+
+@pytest.mark.asyncio
+async def test_ollama_classifier_surfaces_malformed_structured_output() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={"message": {"content": '{"topic":"not-a-topic"}'}},
+        )
+
+    from app.services.classifier import OllamaClassificationError
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    try:
+        with pytest.raises(OllamaClassificationError):
+            await OllamaIntentClassifier(client=client).classify(
+                CustomerRequest(message="help")
+            )
+    finally:
+        await client.aclose()
