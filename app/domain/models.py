@@ -34,6 +34,11 @@ class Urgency(IntEnum):
     EMERGENCY = 5
 
 
+class RiskLevel(StrEnum):
+    LOW = "low"
+    HIGH = "high"
+
+
 class CustomerRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -44,7 +49,7 @@ class ExtractedIntent(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     topic: Topic
-    urgency: int = Field(ge=1, le=5)
+    urgency: Urgency
     order_number: OrderNumber | None = None
     refund_requested: bool = False
     requested_refund_amount: Decimal | None = Field(default=None, ge=0)
@@ -65,6 +70,7 @@ class Order(BaseModel):
 class RiskAssessment(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    level: RiskLevel
     requires_human_approval: bool
     reasons: list[str] = Field(default_factory=list)
 
