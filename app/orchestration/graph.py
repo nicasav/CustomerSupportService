@@ -19,6 +19,7 @@ from app.tools.order_lookup import OrderLookupInput, OrderLookupTool
 
 
 def _step(name: str, detail: str) -> WorkflowStep:
+    """Create a timestamped audit record for one workflow transition."""
     return WorkflowStep(
         name=name,
         detail=detail,
@@ -34,6 +35,7 @@ def build_support_graph(
     """Build a compiled graph with its external dependencies injected."""
 
     async def classify_node(state: WorkflowState) -> dict[str, object]:
+        """Classify the message and append the resulting audit step."""
         intent = await classifier.classify(
             CustomerRequest(message=state.customer_message)
         )
@@ -50,6 +52,7 @@ def build_support_graph(
         }
 
     async def lookup_order_node(state: WorkflowState) -> dict[str, object]:
+        """Use the extracted order number to load mock order data."""
         if state.intent is None or state.intent.order_number is None:
             return {
                 "steps": [
@@ -72,6 +75,7 @@ def build_support_graph(
         }
 
     def assess_risk_node(state: WorkflowState) -> dict[str, object]:
+        """Apply the pure risk policy to the intent and loaded order."""
         if state.intent is None:
             raise RuntimeError("Risk assessment requires classified intent")
         risk = assess_risk(state.intent, state.order)
@@ -91,6 +95,7 @@ def build_support_graph(
     def route_after_risk(
         state: WorkflowState,
     ) -> Literal["routine_response", "mark_pending"]:
+        """Choose the next graph node from the risk assessment."""
         if state.risk is None:
             raise RuntimeError("Risk routing requires a risk assessment")
         return (
@@ -100,6 +105,7 @@ def build_support_graph(
         )
 
     def mark_pending_node(state: WorkflowState) -> dict[str, object]:
+        """Record that the workflow is waiting before interrupting."""
         return {
             "status": WorkflowStatus.PENDING_APPROVAL,
             "steps": [
@@ -109,6 +115,7 @@ def build_support_graph(
         }
 
     def routine_response_node(state: WorkflowState) -> dict[str, object]:
+        """Create the deterministic response for a low-risk request."""
         order_detail = (
             f" for order {state.order.order_number}"
             if state.order is not None
@@ -127,6 +134,7 @@ def build_support_graph(
         }
 
     def await_approval_node(state: WorkflowState) -> dict[str, object]:
+        """Pause for a human decision and finish after resume."""
         decision = interrupt(
             {
                 "reference": state.reference,

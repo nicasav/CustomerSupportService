@@ -1,5 +1,3 @@
-"""Pure, deterministic risk policy for routing support requests."""
-
 from decimal import Decimal
 
 from app.domain.models import (

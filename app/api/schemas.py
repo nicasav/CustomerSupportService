@@ -8,12 +8,16 @@ from app.domain.models import WorkflowStep
 
 
 class RequestCreate(BaseModel):
+    """Payload accepted when a customer submits a new message."""
+
     model_config = ConfigDict(extra="forbid")
 
     message: str = Field(min_length=1, max_length=5_000)
 
 
 class DecisionRequest(BaseModel):
+    """Approval or rejection submitted by a support specialist."""
+
     model_config = ConfigDict(extra="forbid")
 
     approved: bool
@@ -21,6 +25,8 @@ class DecisionRequest(BaseModel):
 
 
 class PendingResponse(BaseModel):
+    """Response returned when a workflow is waiting for human approval."""
+
     status: Literal["pending_approval"]
     reference: str
     reasons: list[str]
@@ -28,6 +34,8 @@ class PendingResponse(BaseModel):
 
 
 class FinalResponse(BaseModel):
+    """Response returned after a workflow has completed or been rejected."""
+
     status: Literal["completed", "rejected"]
     reference: str
     customer_response: str

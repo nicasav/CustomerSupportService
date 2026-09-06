@@ -11,11 +11,14 @@ from app.services.ticket_service import (
     InvalidReferenceError,
 )
 
+"""FastAPI routes for health, request creation, and HITL decisions."""
+
 router = APIRouter()
 
 
 @router.get("/health")
 async def health() -> dict[str, str]:
+    """Return a lightweight liveness response for the service."""
     return {"status": "ok"}
 
 
@@ -28,6 +31,7 @@ async def create_request(
     payload: RequestCreate,
     request: Request,
 ) -> RequestResponse:
+    """Start a workflow and return either a final or pending response."""
     return await request.app.state.ticket_service.start(payload)
 
 
@@ -40,6 +44,7 @@ async def decide_request(
     payload: DecisionRequest,
     request: Request,
 ) -> FinalResponse:
+    """Resume a pending workflow with a support specialist's decision."""
     try:
         return await request.app.state.ticket_service.resume(reference, payload)
     except InvalidReferenceError as exc:

@@ -13,6 +13,8 @@ Reference = Annotated[str, Field(min_length=1, max_length=100)]
 
 
 class Topic(StrEnum):
+    """Supported customer-support request categories."""
+
     DELIVERY = "delivery"
     REFUND = "refund"
     ORDER_STATUS = "order_status"
@@ -20,6 +22,8 @@ class Topic(StrEnum):
 
 
 class WorkflowStatus(StrEnum):
+    """Lifecycle states persisted for a support workflow."""
+
     RUNNING = "running"
     PENDING_APPROVAL = "pending_approval"
     COMPLETED = "completed"
@@ -27,6 +31,8 @@ class WorkflowStatus(StrEnum):
 
 
 class Urgency(IntEnum):
+    """Normalized urgency scale consumed by the risk policy."""
+
     LOW = 1
     MEDIUM = 2
     HIGH = 3
@@ -35,17 +41,23 @@ class Urgency(IntEnum):
 
 
 class RiskLevel(StrEnum):
+    """Risk result used to select automatic or human handling."""
+
     LOW = "low"
     HIGH = "high"
 
 
 class CustomerRequest(BaseModel):
+    """Validated customer message at the application boundary."""
+
     model_config = ConfigDict(extra="forbid")
 
     message: str = Field(min_length=1, max_length=5_000)
 
 
 class ExtractedIntent(BaseModel):
+    """Structured classifier output trusted by downstream nodes."""
+
     model_config = ConfigDict(extra="forbid")
 
     topic: Topic
@@ -57,6 +69,8 @@ class ExtractedIntent(BaseModel):
 
 
 class Order(BaseModel):
+    """Mock order record available to the order lookup tool."""
+
     model_config = ConfigDict(extra="forbid")
 
     order_number: OrderNumber
@@ -68,6 +82,8 @@ class Order(BaseModel):
 
 
 class RiskAssessment(BaseModel):
+    """Risk decision and human-approval reasons for a request."""
+
     model_config = ConfigDict(extra="forbid")
 
     level: RiskLevel
@@ -76,6 +92,8 @@ class RiskAssessment(BaseModel):
 
 
 class WorkflowStep(BaseModel):
+    """Auditable event recorded during workflow execution."""
+
     model_config = ConfigDict(extra="forbid")
 
     name: str = Field(min_length=1)
@@ -84,6 +102,8 @@ class WorkflowStep(BaseModel):
 
 
 class HumanDecision(BaseModel):
+    """Decision supplied when a human approval interrupt is resumed."""
+
     model_config = ConfigDict(extra="forbid")
 
     approved: bool
@@ -91,6 +111,8 @@ class HumanDecision(BaseModel):
 
 
 class WorkflowState(BaseModel):
+    """Complete state snapshot passed between LangGraph nodes."""
+
     model_config = ConfigDict(extra="forbid")
 
     reference: Reference

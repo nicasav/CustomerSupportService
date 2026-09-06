@@ -23,10 +23,14 @@ class AlreadyResolvedError(Exception):
 
 
 class TicketService:
+    """Translate API operations into graph invocations and typed responses."""
+
     def __init__(self, graph) -> None:
+        """Store the compiled graph used for all ticket operations."""
         self._graph = graph
 
     async def start(self, request: RequestCreate) -> RequestResponse:
+        """Create a reference, run a workflow, and map its first result."""
         reference = str(uuid4())
         config = {"configurable": {"thread_id": reference}}
         result = await self._graph.ainvoke(
@@ -53,6 +57,7 @@ class TicketService:
     async def resume(
         self, reference: str, decision: DecisionRequest
     ) -> FinalResponse:
+        """Resume a checkpointed workflow with a validated human decision."""
         config = {"configurable": {"thread_id": reference}}
         current = await self._graph.aget_state(config)
         if not current.values:
@@ -74,6 +79,7 @@ class TicketService:
 
     @staticmethod
     def _final_response(state: WorkflowState) -> FinalResponse:
+        """Convert a completed workflow state into the public response DTO."""
         if state.status not in {
             WorkflowStatus.COMPLETED,
             WorkflowStatus.REJECTED,

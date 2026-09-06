@@ -3,6 +3,11 @@
 from app.services.classifier import (
     DeterministicIntentClassifier,
     IntentClassifier,
+    OllamaIntentClassifier,
 )
 
-__all__ = ["DeterministicIntentClassifier", "IntentClassifier"]
+__all__ = [
+    "DeterministicIntentClassifier",
+    "IntentClassifier",
+    "OllamaIntentClassifier",
+]
