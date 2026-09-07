@@ -13,11 +13,32 @@ python3.11 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env
-brew install ollama
+```
+
+`.env.example` ships with `LLM_PROVIDER=ollama`. If you just want to run the
+app without installing anything else, set `LLM_PROVIDER=deterministic` in
+`.env` and skip straight to the "Start the API" step below — the rule-based
+classifier requires no external model or service.
+
+To use the shipped default (Ollama + local Qwen 2.5 3B) instead, install and
+start Ollama first:
+
+```bash
+brew install ollama       # macOS shown; see https://ollama.com/download for other platforms
 ollama serve
 ollama pull qwen2.5:3b
-uvicorn app.main:app --reload
 ```
+
+Start the API:
+
+```bash
+python -m uvicorn app.main:app --reload
+```
+
+Using `python -m uvicorn` (rather than a bare `uvicorn`) ensures the
+interpreter from the active virtual environment is used, avoiding a PATH
+collision with any globally installed `uvicorn` (for example from a
+Homebrew Python).
 
 The service runs at `http://127.0.0.1:8000`. Swagger is available at
 `http://127.0.0.1:8000/docs`.
@@ -25,7 +46,7 @@ The service runs at `http://127.0.0.1:8000`. Swagger is available at
 Run tests with:
 
 ```bash
-pytest
+python -m pytest
 ```
 
 ## Environment
@@ -193,7 +214,7 @@ output is surfaced as `OllamaClassificationError`; the configured fallback can
 then preserve service availability without silently accepting invalid data.
 
 ```bash
-pytest -q
+python -m pytest -q
 ```
 
 ## Project structure
