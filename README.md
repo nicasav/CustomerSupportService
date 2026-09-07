@@ -243,26 +243,3 @@ tests/
   database.
 - The API process owns one SQLite saver lifecycle; production deployment
   would need operational database management and concurrency review.
-
-## Security notes
-
-- **Prompt injection**: the Ollama system prompt explicitly instructs the
-  model to treat the customer message as untrusted data, not instructions,
-  and the message is wrapped in `<customer_message>` delimiters before being
-  sent. `looks_like_prompt_injection()` additionally flags common override
-  phrasing (e.g. "ignore previous instructions") as a `security_flag` audit
-  step for observability. This is defense-in-depth, not a hard guarantee:
-  Ollama's `format` parameter already constrains model output to the
-  `ExtractedIntent` schema, so an injected instruction cannot escape into
-  arbitrary text or trigger unintended tool calls, but it could still skew
-  which schema fields are extracted. The deterministic classifier is
-  unaffected since it only does keyword matching.
-- **Runaway execution / infinite loops**: `app/orchestration/graph.py` builds
-  a strict directed acyclic graph — every edge points forward
-  (`classify -> lookup_order -> lookup_tracking -> assess_risk ->
-  {routine_response | mark_pending -> await_approval} -> END`) and no node
-  can be revisited within one invocation, so it cannot loop indefinitely
-  today. `WORKFLOW_RECURSION_LIMIT` is nonetheless passed to every
-  `graph.ainvoke()` call in `TicketService` as a defensive guard, so that if
-  a future change introduces a cycle (e.g. a re-classification retry),
-  LangGraph raises `GraphRecursionError` instead of running forever.
