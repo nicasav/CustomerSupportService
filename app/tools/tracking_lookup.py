@@ -18,6 +18,7 @@ class TrackingLookupTool:
     """Look up shipment status through the repository abstraction."""
 
     def __init__(self, repository: OrderRepository) -> None:
+        """Store the repository used for tracking searches."""
         self._repository = repository
 
     async def run(self, input_data: TrackingLookupInput) -> TrackingInfo | None:

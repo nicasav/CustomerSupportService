@@ -12,6 +12,7 @@ from app.api.schemas import (
     RequestResponse,
 )
 from app.domain.models import CustomerRequest, HumanDecision, WorkflowState, WorkflowStatus
+from app.orchestration.graph import WORKFLOW_RECURSION_LIMIT
 
 
 class InvalidReferenceError(Exception):
@@ -32,7 +33,10 @@ class TicketService:
     async def start(self, request: RequestCreate) -> RequestResponse:
         """Create a reference, run a workflow, and map its first result."""
         reference = str(uuid4())
-        config = {"configurable": {"thread_id": reference}}
+        config = {
+            "configurable": {"thread_id": reference},
+            "recursion_limit": WORKFLOW_RECURSION_LIMIT,
+        }
         result = await self._graph.ainvoke(
             {
                 "reference": reference,
@@ -58,7 +62,10 @@ class TicketService:
         self, reference: str, decision: DecisionRequest
     ) -> FinalResponse:
         """Resume a checkpointed workflow with a validated human decision."""
-        config = {"configurable": {"thread_id": reference}}
+        config = {
+            "configurable": {"thread_id": reference},
+            "recursion_limit": WORKFLOW_RECURSION_LIMIT,
+        }
         current = await self._graph.aget_state(config)
         if not current.values:
             raise InvalidReferenceError(reference)

@@ -13,8 +13,12 @@ class OrderLookupInput(BaseModel):
 
 
 class OrderLookupTool:
+    """Look up order details through the repository abstraction."""
+
     def __init__(self, repository: OrderRepository) -> None:
+        """Store the repository used for order searches."""
         self._repository = repository
 
     async def run(self, input_data: OrderLookupInput) -> Order | None:
+        """Return the order matching the validated order number."""
         return await self._repository.find_by_order_number(input_data.order_number)

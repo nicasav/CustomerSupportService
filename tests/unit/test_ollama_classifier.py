@@ -43,6 +43,9 @@ async def test_ollama_classifier_uses_schema_constrained_output() -> None:
     assert intent.urgency is Urgency.LOW
     assert captured["format"] == intent.model_json_schema()
     assert captured["stream"] is False
+    user_message = captured["messages"][1]["content"]
+    assert user_message.startswith("<customer_message>")
+    assert "Where is my ORD-10433 order?" in user_message
 
 
 @pytest.mark.asyncio

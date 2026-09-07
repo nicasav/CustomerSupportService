@@ -14,7 +14,7 @@ from app.domain.models import (
     WorkflowStep,
 )
 from app.domain.risk_policy import assess_risk
-from app.services.classifier import IntentClassifier
+from app.services.classifier import IntentClassifier, looks_like_prompt_injection
 from app.tools.order_lookup import OrderLookupInput, OrderLookupTool
 from app.tools.tracking_lookup import TrackingLookupInput, TrackingLookupTool
 
@@ -28,6 +28,15 @@ def _step(name: str, detail: str) -> WorkflowStep:
     )
 
 
+# The graph below is a strict DAG (see the edges at the bottom of
+# `build_support_graph`): every edge points forward and no node can be
+# revisited within one invocation, so it cannot loop indefinitely today.
+# This limit is a defensive guard passed to every `graph.ainvoke()` call
+# so that if a future change introduces a cycle (e.g. a re-classification
+# retry), LangGraph raises `GraphRecursionError` instead of running forever.
+WORKFLOW_RECURSION_LIMIT = 25
+
+
 def build_support_graph(
     classifier: IntentClassifier,
     order_lookup: OrderLookupTool,
@@ -37,20 +46,36 @@ def build_support_graph(
     """Build a compiled graph with its external dependencies injected."""
 
     async def classify_node(state: WorkflowState) -> dict[str, object]:
-        """Classify the message and append the resulting audit step."""
+        """Classify the message and append the resulting audit step.
+
+        Flags likely prompt-injection phrasing as an audit step for
+        observability. This does not block or alter classification: the
+        Ollama classifier already constrains model output to the
+        `ExtractedIntent` schema, so an injected instruction cannot escape
+        into arbitrary text, only at most skew the extracted fields.
+        """
         intent = await classifier.classify(
             CustomerRequest(message=state.customer_message)
         )
+        steps = [
+            *state.steps,
+            _step(
+                "classify",
+                f"Classified request as {intent.topic.value} with urgency "
+                f"{intent.urgency.name.lower()}",
+            ),
+        ]
+        if looks_like_prompt_injection(state.customer_message):
+            steps.append(
+                _step(
+                    "security_flag",
+                    "Message contains phrasing resembling a prompt-injection "
+                    "attempt; classification output was still schema-validated.",
+                )
+            )
         return {
             "intent": intent,
-            "steps": [
-                *state.steps,
-                _step(
-                    "classify",
-                    f"Classified request as {intent.topic.value} with urgency "
-                    f"{intent.urgency.name.lower()}",
-                )
-            ],
+            "steps": steps,
         }
 
     async def lookup_order_node(state: WorkflowState) -> dict[str, object]:

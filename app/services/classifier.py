@@ -16,6 +16,30 @@ AMOUNT_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+# Heuristic phrases that commonly signal an attempt to override the system
+# prompt or exfiltrate instructions. This is defense-in-depth, not a
+# guarantee: it flags likely attempts for logging/telemetry, it does not
+# block or alter classification, since Ollama's schema-constrained output
+# already limits the blast radius to the fields defined by `ExtractedIntent`.
+PROMPT_INJECTION_PATTERNS = re.compile(
+    r"ignore (?:all )?(?:previous|prior|above) instructions"
+    r"|disregard (?:all )?(?:previous|prior|above)"
+    r"|you are now|act as|pretend (?:to be|you are)"
+    r"|system prompt|reveal your instructions|new instructions"
+    r"|jailbreak|do anything now",
+    re.IGNORECASE,
+)
+
+
+def looks_like_prompt_injection(message: str) -> bool:
+    """Flag messages containing common prompt-injection phrasing.
+
+    This is a heuristic signal for logging/monitoring only; it does not
+    reject or modify the message, since the classifier's structured output
+    schema already constrains what an injected instruction could achieve.
+    """
+    return bool(PROMPT_INJECTION_PATTERNS.search(message))
+
 
 class IntentClassifier(Protocol):
     async def classify(self, request: CustomerRequest) -> ExtractedIntent:
@@ -34,10 +58,12 @@ class FallbackIntentClassifier:
         primary: IntentClassifier,
         fallback: IntentClassifier,
     ) -> None:
+        """Store the preferred classifier and its fallback."""
         self._primary = primary
         self._fallback = fallback
 
     async def classify(self, request: CustomerRequest) -> ExtractedIntent:
+        """Use the primary classifier, falling back on Ollama failures."""
         try:
             return await self._primary.classify(request)
         except OllamaClassificationError:
@@ -59,9 +85,18 @@ class OllamaIntentClassifier:
         self._client = client
 
     async def classify(self, request: CustomerRequest) -> ExtractedIntent:
-        """Call Ollama and validate its schema-constrained JSON response."""
+        """Call Ollama and validate its schema-constrained JSON response.
+
+        The customer message is wrapped in ``<customer_message>`` delimiters
+        so the model can distinguish untrusted user text from instructions,
+        per the system prompt's explicit warning not to follow text found
+        inside those tags.
+        """
         owns_client = self._client is None
         client = self._client or httpx.AsyncClient()
+        delimited_message = (
+            f"<customer_message>\n{request.message}\n</customer_message>"
+        )
         try:
             response = await client.post(
                 f"{self._base_url}/api/chat",
@@ -69,7 +104,7 @@ class OllamaIntentClassifier:
                     "model": self._model,
                     "messages": [
                         {"role": "system", "content": CLASSIFICATION_SYSTEM_PROMPT},
-                        {"role": "user", "content": request.message},
+                        {"role": "user", "content": delimited_message},
                     ],
                     "format": ExtractedIntent.model_json_schema(),
                     "stream": False,
